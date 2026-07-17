@@ -21,8 +21,22 @@ import "github.com/malcolmston/migrate"
   `MigrateTo(version)`, `Redo`, and `Status`.
 - **Directory / `io/fs` loading** of `<version>_<name>.up.sql` /
   `.down.sql` files, plus programmatic `Register` for Go migrations.
-- **ActiveRecord-flavoured schema DSL** that emits portable ANSI SQL:
-  `CreateTable`, `AddColumn`, `AddIndex`, `DropTable`, `RenameColumn`, and more.
+- **ActiveRecord-flavoured schema DSL** with the full column vocabulary
+  (`String`, `Text`, `Integer`, `BigInteger`, `Float`, `Decimal(p,s)`,
+  `Boolean`, `Date`, `Time`, `Timestamp` with precision/time-zone, `Binary`,
+  `JSON`, `JSONB`, `UUID`, `Enum`, arrays, and `References`), plus
+  `ChangeTable` bulk alters, `AddReference`, `RenameColumn`, and `ChangeColumn`.
+- **Per-dialect SQL** — `ANSI`, `Postgres`, `MySQL`, and `SQLite` dialects
+  handle identifier quoting, bind-parameter style, auto-increment keys, and
+  abstract → concrete column-type mapping.
+- **Foreign keys** with `ON DELETE` / `ON UPDATE` referential actions, plus
+  `AddForeignKey` / `RemoveForeignKey`.
+- **Advanced indexes** — unique, partial (`WHERE`), expression/functional, and
+  `USING <method>`.
+- **Reversible `Change`** migrations with automatic inverse generation and
+  irreversible-operation detection.
+- **Idempotent seeds** (`Seeder`) that track each named seed, plus `Execute`
+  raw-SQL helpers, and version-stamped schema dumps (`SchemaDump`).
 
 ## Quick start
 
@@ -129,23 +143,107 @@ CREATE TABLE posts (
 )
 ```
 
-Other helpers: `AddColumn`, `DropColumn`, `RenameColumn`, `RenameTable`,
-`DropTable`, `DropTableIfExists`, `AddIndex`, `DropIndex`.
+The full column vocabulary is available on `*Table`: `String`, `Text`,
+`Integer`, `BigInteger`, `Float`, `Decimal(p, s)`, `Boolean`, `Date`, `Time`,
+`Timestamp` (with `Precision(n)` / `WithTimezone()`), `Binary`, `JSON`, `JSONB`,
+`UUID`, `Enum`, and `Array()` columns. Other helpers: `AddColumn`, `DropColumn`,
+`RenameColumn`, `RenameTable`, `DropTable`, `DropTableIfExists`, `AddIndex`,
+`DropIndex`, `ChangeColumn`, `AddReference`, `AddTimestamps`.
+
+### Dialects
+
+Bind a dialect with `NewSchema` to render for a specific backend. `ANSI` is the
+default used by the package-level helpers:
+
+```go
+pg := migrate.NewSchema(migrate.Postgres)
+pg.CreateTable("users", func(t *migrate.Table) {
+    t.String("email", migrate.NotNull())
+    t.JSONB("prefs")
+    t.String("tags", migrate.Array())
+})
+// => CREATE TABLE "users" (
+//      "id" BIGSERIAL PRIMARY KEY,
+//      "email" VARCHAR(255) NOT NULL,
+//      "prefs" JSONB,
+//      "tags" VARCHAR(255)[]
+//    )
+```
+
+`Postgres` uses double-quoted identifiers, `$n` placeholders, `BIGSERIAL` keys,
+and native `jsonb`/array/`uuid`. `MySQL` uses backticks, `AUTO_INCREMENT`, and
+inline `ENUM`. `SQLite` uses `INTEGER PRIMARY KEY AUTOINCREMENT`.
+
+### Foreign keys and references
+
+```go
+migrate.AddForeignKey("comments", "posts",
+    migrate.OnDelete(migrate.Cascade), migrate.OnUpdate(migrate.Restrict))
+// => ALTER TABLE comments ADD CONSTRAINT fk_comments_post_id
+//    FOREIGN KEY (post_id) REFERENCES posts (id) ON DELETE CASCADE ON UPDATE RESTRICT
+
+migrate.AddReference("comments", "author",
+    migrate.ReferenceIndex(), migrate.WithForeignKey(), migrate.ReferenceTable("users"))
+```
+
+### Advanced indexes
+
+```go
+migrate.AddIndex("users", []string{"email"}, migrate.UniqueIndex(),
+    migrate.Where("deleted_at IS NULL"))        // partial
+migrate.NewSchema(migrate.Postgres).
+    AddIndex("docs", []string{"body"}, migrate.Using("gin")) // method
+migrate.AddIndex("users", []string{"lower(email)"})          // functional
+```
+
+### Reversible changes
+
+```go
+mg.Register(migrate.Change(20240101, "create_users", func(r *migrate.ChangeRecorder) {
+    r.CreateTable("users", func(t *migrate.Table) { t.String("email", migrate.NotNull()) })
+    r.AddIndex("users", []string{"email"}, migrate.UniqueIndex())
+}))
+// Down is derived automatically: DROP INDEX ...; DROP TABLE users.
+```
+
+Irreversible operations (`Execute`, `ChangeColumn`, `RemoveColumn` without a
+type, `DropTable` without a rebuild block) cause rollback to fail with
+`ErrIrreversibleMigration`.
+
+### Seeds
+
+```go
+seeder := migrate.NewSeeder(db)
+seeder.Run(ctx, "countries", func(ctx context.Context, tx *sql.Tx) error {
+    return migrate.Execute(ctx, tx, "INSERT INTO countries (name) VALUES (?)", "Norway")
+})
+// Runs at most once; subsequent calls are no-ops.
+```
+
+### Schema dump
+
+```go
+dump := migrate.NewSchemaDump(migrate.Postgres, 20240102).
+    CreateTable("users", func(t *migrate.Table) { t.String("email") }).
+    AddIndex("users", []string{"email"}, migrate.UniqueIndex())
+fmt.Println(dump.String()) // version-stamped, reconstructable DDL
+```
 
 ## SQL dialect assumptions
 
-The generated SQL and the migrator's own bookkeeping target a conservative ANSI
-subset. Choices are deliberately explicit and documented so the output is
-predictable:
+The migrator's own bookkeeping targets a conservative ANSI subset regardless of
+the schema dialect. Choices are deliberately explicit and documented so the
+output is predictable:
 
-- **Bind parameters** use the `?` placeholder style (MySQL / SQLite / the
-  in-memory test driver). Drivers requiring `$1` positional parameters (such as
-  `lib/pq`) need an adapter.
-- **Auto-increment primary keys** are emitted as
+- **Bookkeeping bind parameters** use the `?` placeholder style (MySQL / SQLite /
+  the in-memory test driver). Use `Dialect.Placeholder(n)` to render
+  backend-appropriate markers in your own statements.
+- **The bookkeeping auto-increment key** is emitted as
   `BIGINT GENERATED BY DEFAULT AS IDENTITY` (SQL:2003 identity columns). Suppress
-  with `WithoutID()`.
-- **Column types** map to `VARCHAR(n)`, `TEXT`, `INTEGER`, `BIGINT`, `BOOLEAN`,
-  `TIMESTAMP`, `DATE`, `DOUBLE PRECISION`.
+  a table's key with `WithoutID()`.
+- **Abstract column types** map to concrete spellings per dialect (e.g. `jsonb`
+  is native on Postgres, folds to `JSON` on MySQL/SQLite; booleans become
+  `TINYINT(1)` on MySQL).
 - **References** follow the Rails convention: a `<singular>_id` column and naive
   `+s` pluralisation of the referenced table (override with `ReferenceTable`).
 - The bookkeeping table (default `schema_migrations`) is
@@ -175,7 +273,7 @@ golangci-lint run
 
 ## Versioning
 
-See the `VERSION` file. This is **v0.1.0**.
+See the `VERSION` file. This is **v0.2.0**.
 
 ## License
 

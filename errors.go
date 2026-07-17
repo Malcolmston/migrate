@@ -20,4 +20,12 @@ var (
 	// ErrInvalidMigration is returned when a migration is missing a version or a
 	// usable Up direction.
 	ErrInvalidMigration = errors.New("migrate: invalid migration")
+
+	// ErrIrreversibleMigration is returned when a reversible [Change] migration
+	// is rolled back but one of its recorded operations cannot be inverted.
+	ErrIrreversibleMigration = errors.New("migrate: irreversible migration")
+
+	// ErrUnknownDialect is returned by [DialectByName] for an unrecognised
+	// dialect name.
+	ErrUnknownDialect = errors.New("migrate: unknown dialect")
 )
