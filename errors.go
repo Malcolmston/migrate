@@ -2,6 +2,7 @@ package migrate
 
 import "errors"
 
+// Sentinel errors returned by the migrator, loaders and schema DSL.
 var (
 	// ErrDuplicateVersion is returned by [Migrator.Register] and the loaders
 	// when two migrations share the same Version.
