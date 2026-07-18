@@ -81,4 +81,4 @@
 package migrate
 
 // Version is the semantic version of this library. It mirrors the VERSION file.
-const Version = "0.2.0"
+const Version = "0.3.0"

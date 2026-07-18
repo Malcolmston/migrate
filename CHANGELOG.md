@@ -4,6 +4,39 @@ All notable changes to this project are documented here. The format is based on
 [Keep a Changelog](https://keepachangelog.com/), and this project adheres to
 [Semantic Versioning](https://semver.org/).
 
+## [0.3.0] - 2026-07-18
+
+Further expansion of the schema DSL toward ActiveRecord::Migration parity. Fully
+backward compatible: every prior helper keeps its exact output.
+
+### Added
+
+- **Constraints**: `AddCheckConstraint` / `RemoveCheckConstraint` (Rails 6.1's
+  check constraints) and `AddUniqueConstraint` / `RemoveUniqueConstraint`
+  (Rails 7's named unique constraints), with a `ConstraintOption` set
+  (`ConstraintName`, `Deferrable`). Both the dialect-aware `*Schema` methods and
+  the package-level ANSI wrappers are provided.
+- **Column alterations**: `ChangeColumnDefault`, `ChangeColumnDefaultRaw`,
+  `DropColumnDefault`, `ChangeColumnNull`, and `RenameIndex` (dialect-specific
+  spelling for MySQL vs. PostgreSQL/ANSI), mirroring `change_column_default`,
+  `change_column_null`, and `rename_index`.
+- **Views**: `CreateView` / `DropView` / `RefreshMaterializedView` with a
+  `ViewOption` set (`OrReplace`, `Materialized`, `ViewIfExists`).
+- **Join tables**: `CreateJoinTable` / `DropJoinTable` and the `JoinTableName`
+  helper, mirroring `create_join_table` for has_and_belongs_to_many.
+- **PostgreSQL objects**: `EnableExtension` / `DisableExtension`, `CreateEnum` /
+  `DropEnum`, and `AddEnumValue` (with `BeforeValue` / `AfterValue`).
+- **Miscellaneous DDL**: `TruncateTable`, `SetTableComment`, `SetColumnComment`,
+  and `CreateSequence` / `DropSequence` (with `SequenceStart` /
+  `SequenceIncrement`).
+- **Reversible variants** on `ChangeRecorder` for the above
+  (`AddCheckConstraint`, `AddUniqueConstraint`, `CreateJoinTable`, `RenameIndex`,
+  `CreateView`, `EnableExtension`), so they participate in auto-inverted
+  `Change` migrations.
+- **Schema-dump recorders** on `SchemaDump` (`CreateView`, `AddCheckConstraint`,
+  `AddUniqueConstraint`, `EnableExtension`, `CreateEnum`, `CreateJoinTable`) so a
+  dump can reconstruct views, types, extensions, and constraints.
+
 ## [0.2.0] - 2026-07-17
 
 Major expansion of the schema DSL toward ActiveRecord::Migration parity. Fully
