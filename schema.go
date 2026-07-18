@@ -303,6 +303,12 @@ func (t *Table) Timestamps() {
 // References adds a "<name>_id" foreign-key column. By default it only adds the
 // column; pass [WithForeignKey] to also emit an inline REFERENCES constraint to
 // the pluralised table's id column.
+//
+// When [Polymorphic] is set the reference is polymorphic: a companion
+// "<name>_type" VARCHAR column is added ahead of the "<name>_id" column,
+// mirroring ActiveRecord's t.references :taggable, polymorphic: true. A
+// polymorphic reference never emits a foreign key, since it may point at more
+// than one table.
 func (t *Table) References(name string, opts ...ReferenceOption) {
 	ro := referenceOptions{column: name + "_id", refTable: pluralize(name), refColumn: "id"}
 	for _, opt := range opts {
@@ -312,8 +318,11 @@ func (t *Table) References(name string, opts ...ReferenceOption) {
 	if ro.notNull {
 		colOpts = append(colOpts, NotNull())
 	}
+	if ro.polymorphic {
+		t.addSpec(name+"_type", typeSpec{kind: kindString}, colOpts...)
+	}
 	t.addSpec(ro.column, typeSpec{kind: kindBigInt}, colOpts...)
-	if ro.foreignKey {
+	if ro.foreignKey && !ro.polymorphic {
 		t.foreignKeys = append(t.foreignKeys,
 			fmt.Sprintf("FOREIGN KEY (%s) REFERENCES %s (%s)",
 				t.dialect.Quote(ro.column), t.dialect.Quote(ro.refTable), t.dialect.Quote(ro.refColumn)))
@@ -322,12 +331,13 @@ func (t *Table) References(name string, opts ...ReferenceOption) {
 
 // referenceOptions holds resolved [Table.References] modifiers.
 type referenceOptions struct {
-	column     string
-	refTable   string
-	refColumn  string
-	foreignKey bool
-	notNull    bool
-	index      bool
+	column      string
+	refTable    string
+	refColumn   string
+	foreignKey  bool
+	notNull     bool
+	index       bool
+	polymorphic bool
 }
 
 // ReferenceOption modifies a [Table.References] column.
@@ -347,6 +357,14 @@ func ReferenceTable(name string) ReferenceOption {
 // ReferenceIndex adds an index on the reference column. It applies to
 // [Schema.AddReference]; inline table references ignore it.
 func ReferenceIndex() ReferenceOption { return func(o *referenceOptions) { o.index = true } }
+
+// Polymorphic marks the reference polymorphic, mirroring ActiveRecord's
+// polymorphic: true. A companion "<name>_type" string column is emitted
+// alongside the "<name>_id" column and no foreign key is generated. When
+// combined with [ReferenceIndex] on [Schema.AddReference] the index covers the
+// pair ("<name>_type", "<name>_id"), matching Rails' composite polymorphic
+// index.
+func Polymorphic() ReferenceOption { return func(o *referenceOptions) { o.polymorphic = true } }
 
 // tableOptions holds resolved CreateTable modifiers.
 type tableOptions struct {

@@ -74,7 +74,7 @@ func TestAddIndex(t *testing.T) {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if got, want := AddIndex("users", []string{"first", "last"}, UniqueIndex()),
-		"CREATE UNIQUE INDEX index_users_on_first_last ON users (first, last)"; got != want {
+		"CREATE UNIQUE INDEX index_users_on_first_and_last ON users (first, last)"; got != want {
 		t.Fatalf("got %q, want %q", got, want)
 	}
 	if got, want := AddIndex("users", []string{"email"}, IndexName("custom_idx")),

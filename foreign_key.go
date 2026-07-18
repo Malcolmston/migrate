@@ -102,6 +102,11 @@ func (s *Schema) RemoveForeignKey(fromTable, toTable string, opts ...ForeignKeyO
 // existing table, mirroring ActiveRecord's add_reference. By default it only
 // adds the column; pass [WithForeignKey] to also emit an ADD CONSTRAINT
 // foreign key, and [ReferenceIndex] to add an index on the new column.
+//
+// With [Polymorphic] a companion "<name>_type" VARCHAR column is added ahead of
+// "<name>_id", no foreign key is emitted, and a requested index covers the pair
+// ("<name>_type", "<name>_id") — matching ActiveRecord's composite polymorphic
+// index.
 func (s *Schema) AddReference(table, name string, opts ...ReferenceOption) string {
 	ro := referenceOptions{column: name + "_id", refTable: pluralize(name), refColumn: "id"}
 	for _, opt := range opts {
@@ -111,11 +116,19 @@ func (s *Schema) AddReference(table, name string, opts ...ReferenceOption) strin
 	if ro.notNull {
 		colOpts = append(colOpts, NotNull())
 	}
-	stmts := []string{s.AddColumn(table, ro.column, "BIGINT", colOpts...)}
-	if ro.index {
-		stmts = append(stmts, s.AddIndex(table, []string{ro.column}))
+	var stmts []string
+	if ro.polymorphic {
+		stmts = append(stmts, s.AddColumn(table, name+"_type", "VARCHAR", append([]ColumnOption{Limit(255)}, colOpts...)...))
 	}
-	if ro.foreignKey {
+	stmts = append(stmts, s.AddColumn(table, ro.column, "BIGINT", colOpts...))
+	if ro.index {
+		if ro.polymorphic {
+			stmts = append(stmts, s.AddIndex(table, []string{name + "_type", ro.column}))
+		} else {
+			stmts = append(stmts, s.AddIndex(table, []string{ro.column}))
+		}
+	}
+	if ro.foreignKey && !ro.polymorphic {
 		stmts = append(stmts, s.AddForeignKey(table, ro.refTable,
 			FKColumn(ro.column), FKPrimaryKey(ro.refColumn)))
 	}
@@ -123,13 +136,18 @@ func (s *Schema) AddReference(table, name string, opts ...ReferenceOption) strin
 }
 
 // RemoveReference builds statement(s) dropping a reference column previously
-// added with [Schema.AddReference].
+// added with [Schema.AddReference]. A [Polymorphic] reference also drops the
+// companion "<name>_type" column.
 func (s *Schema) RemoveReference(table, name string, opts ...ReferenceOption) string {
 	ro := referenceOptions{column: name + "_id", refTable: pluralize(name), refColumn: "id"}
 	for _, opt := range opts {
 		opt(&ro)
 	}
-	return s.DropColumn(table, ro.column)
+	stmts := []string{s.DropColumn(table, ro.column)}
+	if ro.polymorphic {
+		stmts = append(stmts, s.DropColumn(table, name+"_type"))
+	}
+	return strings.Join(stmts, ";\n")
 }
 
 // singularize is the naive inverse of [pluralize]: it strips a single trailing

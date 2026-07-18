@@ -34,7 +34,9 @@ func Using(method string) IndexOption { return func(o *indexOptions) { o.using =
 // are bare identifiers are quoted for the dialect; anything else (such as a
 // functional expression "lower(email)") is emitted verbatim, enabling
 // expression indexes. When no name is supplied the ActiveRecord-style
-// "index_<table>_on_<cols>" convention is used.
+// "index_<table>_on_<cols>" convention is used, joining multiple columns with
+// "_and_" exactly as Rails' index_name does (e.g. columns foo and bar on table
+// testings yield "index_testings_on_foo_and_bar").
 //
 // Options compose: [UniqueIndex] for uniqueness, [Using] to pick an index
 // method, and [Where] for a partial index.
@@ -45,7 +47,7 @@ func (s *Schema) AddIndex(table string, columns []string, opts ...IndexOption) s
 	}
 	name := o.name
 	if name == "" {
-		name = "index_" + table + "_on_" + strings.Join(sanitizeAll(columns), "_")
+		name = "index_" + table + "_on_" + strings.Join(sanitizeAll(columns), "_and_")
 	}
 
 	rendered := make([]string, len(columns))

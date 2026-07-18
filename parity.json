@@ -1,0 +1,10 @@
+{
+  "repo": "migrate",
+  "upstream": "rails/rails",
+  "parityBefore": "87%",
+  "parityAfter": "100%",
+  "upstreamCasesSynced": 15,
+  "gapsFound": 2,
+  "gapsClosed": 2,
+  "asOf": "2026-07-18"
+}
